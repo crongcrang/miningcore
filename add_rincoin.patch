@@ -1,0 +1,91 @@
+From 1234567890 Mon Sep 17 00:00:00 2001
+From: ChatGPT <dev@example.com>
+Date: Sat, 28 Sep 2025 10:00:00 +0700
+Subject: [PATCH] Add RinCoin + RinHash support
+
+---
+ src/Miningcore/Algorithms/RinHashAlgorithm.cs | 70 +++++++++++++++++++++++++++
+ src/Miningcore/CryptoCoins/RinCoin.cs         | 30 +++++++++++
+ src/Miningcore/CryptoCoins/CoinFactory.cs     |  4 ++
+ 3 files changed, 104 insertions(+)
+ create mode 100644 src/Miningcore/Algorithms/RinHashAlgorithm.cs
+ create mode 100644 src/Miningcore/CryptoCoins/RinCoin.cs
+
+--- /dev/null
++++ b/src/Miningcore/Algorithms/RinHashAlgorithm.cs
+@@
++using Blake3;
++using Konscious.Security.Cryptography;
++using SHA3.Net;
++using System;
++using System.Numerics;
++
++namespace Miningcore.Algorithms
++{
++    public static class RinHashAlgorithm
++    {
++        public static byte[] ComputeRinHash(byte[] headerBytes, int argonMemoryKb = 65536, int argonIterations = 2, int argonParallelism = 1, int argonOutputBytes = 32)
++        {
++            var blake3 = Hasher.New();
++            blake3.Update(headerBytes);
++            var blake3Out = blake3.Finalize();
++
++            var argon = new Argon2d(blake3Out)
++            {
++                DegreeOfParallelism = argonParallelism,
++                Iterations = Math.Max(1, argonIterations),
++                MemorySize = Math.Max(8, argonMemoryKb)
++            };
++
++            var argonOut = argon.GetBytes(argonOutputBytes);
++
++            var sha3 = Sha3.Sha3256();
++            var final = sha3.ComputeHash(argonOut);
++            return final;
++        }
++
++        public static bool ValidatePoW(byte[] headerBytes, byte[] targetBE, int argonMemoryKb = 65536, int argonIterations = 2)
++        {
++            var hash = ComputeRinHash(headerBytes, argonMemoryKb, argonIterations);
++            var hashInt = new BigInteger(ToLittleEndianWithSign(hash));
++            var targetInt = new BigInteger(ToLittleEndianWithSign(targetBE));
++            return hashInt <= targetInt;
++        }
++
++        private static byte[] ToLittleEndianWithSign(byte[] bigEndian)
++        {
++            var little = new byte[bigEndian.Length + 1];
++            for (int i = 0; i < bigEndian.Length; i++)
++                little[i] = bigEndian[bigEndian.Length - 1 - i];
++            return little;
++        }
++    }
++}
+
+--- /dev/null
++++ b/src/Miningcore/CryptoCoins/RinCoin.cs
+@@
++using Miningcore.Algorithms;
++namespace Miningcore.CryptoCoins
++{
++    public class RinCoin : CoinBase // ปรับชื่อ base class ให้ตรงกับ repo
++    {
++        public override string Name => "RinCoin";
++        public override string Symbol => "RIN";
++
++        public override ushort DefaultRpcPort => 23232; // ปรับตามจริง
++
++        public override bool ValidateBlockHeader(byte[] headerBytes, byte[] target)
++        {
++            return RinHashAlgorithm.ValidatePoW(headerBytes, target, argonMemoryKb: 65536, argonIterations: 2);
++        }
++    }
++}
+
+--- a/src/Miningcore/CryptoCoins/CoinFactory.cs
++++ b/src/Miningcore/CryptoCoins/CoinFactory.cs
+@@
+             switch (coinTypeName.ToLowerInvariant())
+             {
++                case "rincoin":
++                    return new RinCoin();
